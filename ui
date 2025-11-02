@@ -1,133 +1,165 @@
 --[[
-    Script Auto Buyer
-    Instruções: Cole isso no seu executor.
-    Pré-requisito: A UI Library deve estar hospedada em uma URL válida.
+    ZenithLib v1.0
+    Uma biblioteca de UI simples e moderna para Roblox.
 ]]
 
--- Limpa instâncias anteriores do script principal
-if getgenv().AutoBuyerInstance and getgenv().AutoBuyerInstance.Cleanup then
-    getgenv().AutoBuyerInstance:Cleanup()
-end
+local ZenithLib = {}
 
--- Carrega a biblioteca de UI a partir da URL
-local Library = loadstring(game:HttpGet("URL_DA_SUA_LIB_AQUI"))()
-if not Library then
-    warn("Falha ao carregar a UI Library. Verifique a URL.")
-    return
-end
+-- Serviços e Constantes Internos
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local CoreGui = game:GetService("CoreGui")
+local RunService = game:GetService("RunService")
 
--- Configurações e estado do nosso script
-local Settings = {
-    seedEnabled = false,
-    gearEnabled = false,
-    miscEnabled = false,
-    antiAfkEnabled = true,
-    seedBlacklist = {},
-    gearBlacklist = {},
-    delay = 0.5
+local Constants = {
+    Colors = {
+        Background = Color3.fromRGB(24, 25, 28), Primary = Color3.fromRGB(33, 34, 40),
+        Secondary = Color3.fromRGB(45, 46, 52), Accent = Color3.fromRGB(0, 150, 255),
+        AccentHover = Color3.fromRGB(50, 170, 255), Success = Color3.fromRGB(0, 180, 120),
+        Danger = Color3.fromRGB(225, 70, 70), Disabled = Color3.fromRGB(80, 80, 80),
+        TextPrimary = Color3.fromRGB(230, 230, 230), TextSecondary = Color3.fromRGB(150, 150, 150),
+    },
+    Fonts = { Title = Enum.Font.GothamBold, Default = Enum.Font.Gotham, Button = Enum.Font.GothamSemibold },
+    Animation = { FadeInfo = TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), SlideInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.Out) },
+    Assets = { Locked = "rbxassetid://3926305904", Unlocked = "rbxassetid://3926306024" }
 }
 
--- Funções de Lógica (o "cérebro" do script)
-local Logic = {}
-local activeLoops = {}
+local connections = {}
 
-function Logic:_fireRemote(remoteName, ...)
-    local remote = game:GetService("ReplicatedStorage").Remotes and game:GetService("ReplicatedStorage").Remotes:FindFirstChild(remoteName)
-    if not remote then return end
-    pcall(remote.FireServer, remote, ...)
+-- Função auxiliar interna para criar elementos
+local function _create(instanceType, properties)
+    local element = Instance.new(instanceType)
+    for prop, value in pairs(properties) do
+        element[prop] = value
+    end
+    return element
 end
 
-function Logic:StartBuyingLoop(config)
-    if activeLoops[config.Name] then task.cancel(activeLoops[config.Name]) end
-    activeLoops[config.Name] = task.spawn(function()
-        while Settings[config.Flag] do
-            for _, item in ipairs(config.Items) do
-                if not Settings[config.Flag] then break end
-                if not table.find(config.Blacklist, item) then
-                    Logic:_fireRemote(config.Remote, item, true)
-                    task.wait(Settings.delay)
-                end
+-- Metatables para os objetos da UI
+local Window = {}
+Window.__index = Window
+
+local Tab = {}
+Tab.__index = Tab
+
+-- Construtor da Janela (Função principal da Lib)
+function ZenithLib:CreateWindow(title, size)
+    -- Limpa conexões antigas se uma janela já existir
+    for _, c in pairs(connections) do c:Disconnect() end; connections = {}
+    if CoreGui:FindFirstChild("ZenithLib_Window") then CoreGui.ZenithLib_Window:Destroy() end
+
+    size = size or UDim2.new(0, 360, 0, 430)
+    local self = setmetatable({}, Window)
+    
+    self.ScreenGui = _create("ScreenGui", {Name = "ZenithLib_Window", Parent = CoreGui, ResetOnSpawn = false})
+    self.MainFrame = _create("Frame", {Parent = self.ScreenGui, Size = size, Position = UDim2.new(0.5, -size.X.Offset/2, 0.5, -size.Y.Offset/2), BackgroundColor3 = Constants.Colors.Background, BorderSizePixel = 0, Active = true, Draggable = true, ClipsDescendants = true})
+    _create("UICorner", {CornerRadius = UDim.new(0, 8), Parent = self.MainFrame})
+    _create("UIStroke", {Color = Constants.Colors.Primary, Thickness = 2, Parent = self.MainFrame})
+    
+    local Header = _create("Frame", {Parent = self.MainFrame, Size = UDim2.new(1, 0, 0, 45), BackgroundTransparency = 1})
+    _create("TextLabel", {Parent = Header, Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, Text = title, TextColor3 = Constants.Colors.TextPrimary, TextSize = 18, Font = Constants.Fonts.Title})
+    
+    local MainContent = _create("Frame", {Parent = self.MainFrame, Size = UDim2.new(1, -30, 1, -50), Position = UDim2.new(0, 15, 0, 45), BackgroundTransparency = 1})
+    self.TabFrame = _create("Frame", {Parent = MainContent, Size = UDim2.new(1, 0, 0, 35), BackgroundTransparency = 1})
+    self.ContentFrame = _create("Frame", {Parent = MainContent, Size = UDim2.new(1, 0, 1, -40), Position = UDim2.new(0, 0, 0, 40), BackgroundTransparency = 1})
+    
+    self.Tabs = {}
+    self.TabButtons = {}
+    _create("UIListLayout", {Parent = self.TabFrame, FillDirection = Enum.FillDirection.Horizontal, SortOrder = Enum.SortOrder.LayoutOrder, VerticalAlignment = Enum.VerticalAlignment.Center})
+    self.SelectionUnderline = _create("Frame", {Parent = self.TabFrame, BackgroundColor3 = Constants.Colors.Accent, BorderSizePixel = 0, ZIndex = 2})
+    _create("UICorner", {CornerRadius = UDim.new(1, 0), Parent = self.SelectionUnderline})
+
+    return self
+end
+
+function Window:AddTab(name)
+    local self = self
+    local tab = setmetatable({}, Tab)
+    tab.ParentWindow = self
+    tab.Name = name
+    
+    -- Cria o contêiner de conteúdo rolável para a aba
+    tab.Content = _create("ScrollingFrame", {
+        Parent = self.ContentFrame,
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        ScrollBarThickness = 6,
+        ScrollBarImageColor3 = Constants.Colors.Accent,
+        Visible = #self.Tabs == 0,
+        GroupTransparency = #self.Tabs == 0 and 0 or 1
+    })
+    _create("UIListLayout", { Parent = tab.Content, Padding = UDim.new(0, 10), SortOrder = Enum.SortOrder.LayoutOrder })
+    _create("UIPadding", { Parent = tab.Content, PaddingTop = UDim.new(0, 10) })
+
+    local container = _create("Frame", { Parent = self.TabFrame, Size = UDim2.new(0,0,1,0), BackgroundTransparency = 1 })
+    local tabBtn = _create("TextButton", {Parent=container,Size=UDim2.new(1,-5,1,0),Position=UDim2.fromScale(0.5,0.5),AnchorPoint=Vector2.new(0.5,0.5),BackgroundTransparency=1,Text=name,TextColor3=Constants.Colors.TextSecondary,TextSize=14,Font=Constants.Fonts.Button})
+    
+    table.insert(self.Tabs, tab)
+    self.TabButtons[name] = {Button = tabBtn, Container = container}
+
+    -- Recalcula o tamanho de todos os containers de botão
+    for _, btnData in pairs(self.TabButtons) do
+        btnData.Container.Size = UDim2.new(1 / #self.Tabs, 0, 1, 0)
+    end
+
+    connections[#connections+1] = tabBtn.MouseButton1Click:Connect(function()
+        for _, otherTabData in pairs(self.TabButtons) do TweenService:Create(otherTabData.Button, Constants.Animation.FadeInfo, {TextColor3 = Constants.Colors.TextSecondary}):Play() end
+        TweenService:Create(tabBtn, Constants.Animation.FadeInfo, {TextColor3 = Constants.Colors.TextPrimary}):Play()
+        
+        local goalSize=UDim2.new(container.Size.X.Scale,-5,0,3)
+        local goalPos=UDim2.new(container.Position.X.Scale,container.Position.X.Offset+2.5,1,-3)
+        TweenService:Create(self.SelectionUnderline,Constants.Animation.SlideInfo,{Size=goalSize,Position=goalPos}):Play()
+        
+        for _, otherTab in ipairs(self.Tabs) do
+            if otherTab.Content.Visible then
+                local currentTabContent = otherTab.Content
+                local tween = TweenService:Create(currentTabContent, Constants.Animation.FadeInfo, {GroupTransparency=1})
+                tween.Completed:Connect(function() if tween.PlaybackState == Enum.PlaybackState.Completed then currentTabContent.Visible = false end end)
+                tween:Play()
             end
+        end
+        
+        task.spawn(function()
+            task.wait(Constants.Animation.FadeInfo.Time)
+            tab.Content.Visible, tab.Content.GroupTransparency = true, 1
+            TweenService:Create(tab.Content, Constants.Animation.FadeInfo, {GroupTransparency=0}):Play()
+        end)
+    end)
+    
+    if #self.Tabs == 1 then
+        tabBtn.TextColor3 = Constants.Colors.TextPrimary
+        task.spawn(function()
             task.wait(0.1)
-        end
-    end)
-end
-
-function Logic:StartMiscLoop()
-    if activeLoops.Misc then task.cancel(activeLoops.Misc) end
-    activeLoops.Misc = task.spawn(function()
-        while Settings.miscEnabled do
-            Logic:_fireRemote("EquipBestBrainrots")
-            task.wait(30)
-        end
-    end)
-end
-
--- Construção da Interface usando a Biblioteca
-local Window = Library:CreateWindow("Menu de Compra Automática", UDim2.new(0, 360, 0, 430))
-
--- Aba de Sementes
-local SeedsTab = Window:CreateTab("Sementes")
-do
-    local function onToggle(button, updateToggle)
-        Settings.seedEnabled = not Settings.seedEnabled
-        button.Text = Settings.seedEnabled and "Parar Compra" or "Iniciar Compra"
-        button.BackgroundColor3 = Settings.seedEnabled and Library.Constants.Colors.Success or Library.Constants.Colors.Danger
-        updateToggle(Settings.seedEnabled)
-        if Settings.seedEnabled then
-            Logic:StartBuyingLoop({Name="Seeds", Flag="seedEnabled", Items=AutoBuyer.ItemData.Sementes, Blacklist=Settings.seedBlacklist, Remote="BuyItem"})
-        end
+            if not self.SelectionUnderline or not self.SelectionUnderline.Parent then return end
+            self.SelectionUnderline.Size = UDim2.new(container.Size.X.Scale, -5, 0, 3)
+            self.SelectionUnderline.Position = UDim2.new(container.Position.X.Scale, container.Position.X.Offset + 2.5, 1, -3)
+        end)
     end
-    SeedsTab:CreateActionButton({ Text = "Iniciar Compra", IsOn = Settings.seedEnabled, Callback = onToggle })
-    
-    -- Adicionar botões para cada semente...
+
+    return tab
 end
 
--- Aba de Equipamentos
-local GearTab = Window:CreateTab("Equipamentos")
-do
-    local function onToggle(button, updateToggle)
-        Settings.gearEnabled = not Settings.gearEnabled
-        button.Text = Settings.gearEnabled and "Parar Compra" or "Iniciar Compra"
-        button.BackgroundColor3 = Settings.gearEnabled and Library.Constants.Colors.Success or Library.Constants.Colors.Danger
-        updateToggle(Settings.gearEnabled)
-        if Settings.gearEnabled then
-            Logic:StartBuyingLoop({Name="Gear", Flag="gearEnabled", Items=AutoBuyer.ItemData.Equipamentos, Blacklist=Settings.gearBlacklist, Remote="BuyGear"})
-        end
-    end
-    GearTab:CreateActionButton({ Text = "Iniciar Compra", IsOn = Settings.gearEnabled, Callback = onToggle })
-    
-    -- Adicionar botões para cada equipamento...
+-- Funções para adicionar componentes a uma aba
+function Tab:AddButton(text, callback)
+    local button = _create("TextButton", {Parent = self.Content, Size=UDim2.new(1,0,0,35), BackgroundColor3=Constants.Colors.Secondary, Text=text, TextColor3=Constants.Colors.TextPrimary, Font=Constants.Fonts.Button, TextSize=14})
+    _create("UICorner", {CornerRadius=UDim.new(0,6), Parent=button})
+    connections[#connections+1] = button.MouseButton1Click:Connect(callback)
+    return button
 end
 
--- Aba Diversos
-local MiscTab = Window:CreateTab("Diversos")
-do
-    MiscTab:CreateToggle("Auto-Equipar", Settings.miscEnabled, function(isEnabled)
-        Settings.miscEnabled = isEnabled
-        if isEnabled then Logic:StartMiscLoop() end
-    end)
-    MiscTab:CreateToggle("Anti-AFK", Settings.antiAfkEnabled, function(isEnabled)
-        Settings.antiAfkEnabled = isEnabled
-    end)
+function Tab:AddToggle(label, isEnabled, callback)
+    local container, updateVisuals = ZenithLib._createToggleSwitch(self.Content, label, isEnabled, callback)
+    return container, updateVisuals
 end
 
--- Aba de Configurações
-local ConfigTab = Window:CreateTab("Config.")
-do
-    ConfigTab:CreateSlider("Delay de Compra", 0.1, 2.0, Settings.delay, function(value)
-        Settings.delay = value
-    end)
+function Tab:AddSlider(label, min, max, initial, callback)
+    local container = ZenithLib._createSlider(self.Content, label, min, max, initial, callback)
+    return container
 end
 
+-- Implementações dos componentes (internas da Lib)
+ZenithLib._createToggleSwitch = function(parent,labelText,isEnabled,callback) local C=Constants;local container=_create("Frame",{Parent=parent,Size=UDim2.new(1,0,0,35),BackgroundTransparency=1})if labelText then _create("TextLabel",{Parent=container,Size=UDim2.new(0.7,0,1,0),BackgroundTransparency=1,Text=labelText,Font=C.Fonts.Default,TextColor3=C.Colors.TextPrimary,TextSize=14,TextXAlignment=Enum.TextXAlignment.Left})end;local switchBg=_create("Frame",{Parent=container,Size=UDim2.fromOffset(50,20),Position=labelText and UDim2.new(0.8,0,0.5,-10)or UDim2.new(0.5,-25,0.5,-10),BackgroundColor3=isEnabled and C.Colors.Success or C.Colors.Disabled})_create("UICorner",{CornerRadius=UDim.new(1,0),Parent=switchBg})local switchKnob=_create("Frame",{Parent=switchBg,Size=UDim2.fromOffset(16,16),Position=isEnabled and UDim2.new(1,-18,0.5,-8)or UDim2.new(0,2,0.5,-8),BackgroundColor3=C.Colors.TextPrimary,BorderSizePixel=0})_create("UICorner",{CornerRadius=UDim.new(1,0),Parent=switchKnob})local clickDetector=_create("TextButton",{Parent=switchBg,Size=UDim2.fromScale(1,1),BackgroundTransparency=1,Text=""})local function updateVisuals(enabled)isEnabled=enabled;local p=enabled and UDim2.new(1,-18,0.5,-8)or UDim2.new(0,2,0.5,-8);local c=enabled and C.Colors.Success or C.Colors.Disabled;TweenService:Create(switchKnob,C.Animation.FadeInfo,{Position=p}):Play()TweenService:Create(switchBg,C.Animation.FadeInfo,{BackgroundColor3=c}):Play()end;connections[#connections+1]=clickDetector.MouseButton1Click:Connect(function()isEnabled=not isEnabled;callback(isEnabled);updateVisuals(isEnabled)end)return container,updateVisuals end
+ZenithLib._createSlider = function(parent,label,min,max,initial,callback) local C=Constants;local container=_create("Frame",{Parent=parent,Size=UDim2.new(1,0,0,50),BackgroundTransparency=1})local valueLabel=_create("TextLabel",{Parent=container,Size=UDim2.new(1,0,0,20),BackgroundTransparency=1,Font=C.Fonts.Default,TextColor3=C.Colors.TextPrimary,TextSize=14,Text=string.format("%s: %.2fs",label,initial)})local track=_create("Frame",{Parent=container,Size=UDim2.new(1,0,0,6),Position=UDim2.new(0,0,0,25),BackgroundColor3=C.Colors.Primary})_create("UICorner",{CornerRadius=UDim.new(1,0),Parent=track})local fill=_create("Frame",{Parent=track,Size=UDim2.new((initial-min)/(max-min),0,1,0),BackgroundColor3=C.Colors.Accent})_create("UICorner",{CornerRadius=UDim.new(1,0),Parent=fill})local thumb=_create("ImageButton",{Parent=track,Size=UDim2.fromOffset(16,16),Position=UDim2.new(fill.Size.X.Scale,-8,0.5,-8),BackgroundColor3=C.Colors.TextPrimary,ZIndex=2})_create("UICorner",{CornerRadius=UDim.new(1,0),Parent=thumb})local isDragging=false;connections[#connections+1]=thumb.InputBegan:Connect(function(input)if input.UserInputType==Enum.UserInputType.MouseButton1 or input.UserInputType==Enum.UserInputType.Touch then isDragging=true end end)connections[#connections+1]=thumb.InputEnded:Connect(function(input)if input.UserInputType==Enum.UserInputType.MouseButton1 or input.UserInputType==Enum.UserInputType.Touch then isDragging=false end end)connections[#connections+1]=UserInputService.InputChanged:Connect(function(input)if isDragging and(input.UserInputType==Enum.UserInputType.MouseMovement or input.UserInputType==Enum.UserInputType.Touch)then local percent=math.clamp((input.Position.X-track.AbsolutePosition.X)/track.AbsoluteSize.X,0,1)local value=min+(max-min)*percent;fill.Size,thumb.Position=UDim2.new(percent,0,1,0),UDim2.new(percent,-8,0.5,-8)valueLabel.Text=string.format("%s: %.2fs",label,value)callback(value)end end)return container end
 
--- Gerenciamento da instância para limpeza
-local instance = {
-    Cleanup = function()
-        Window.ScreenGui:Destroy()
-        Library:Cleanup()
-        for _, thread in pairs(activeLoops) do task.cancel(thread) end
-        getgenv().AutoBuyerInstance = nil
-    end
-}
-getgenv().AutoBuyerInstance = instance
+return ZenithLib
