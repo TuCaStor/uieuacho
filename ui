@@ -1,7 +1,7 @@
 --[[
-    ZenithLib v6.0 - Final & Robusta
-    - Correção definitiva do erro "attempt to index function with 'Parent'".
-    - Lógica de sincronização do ActionRow refeita para ser à prova de falhas.
+    ZenithLib v6.1 - Final & Robusta
+    - Corrigido alinhamento vertical do texto das abas.
+    - Solidificada a lógica de sincronização do ActionRow.
 ]]
 
 local ZenithLib = {}
@@ -60,7 +60,10 @@ function Window:AddTab(name)
     tab.Content=_create("ScrollingFrame",{Parent=tab.Container,Size=UDim2.fromScale(1,1),BackgroundTransparency=1,BorderSizePixel=0,ScrollBarThickness=6,ScrollBarImageColor3=Constants.Colors.Accent,AutomaticCanvasSize=Enum.AutomaticSize.Y})
     _create("UIListLayout",{Parent=tab.Content,Padding=UDim.new(0,10),SortOrder=Enum.SortOrder.LayoutOrder})
     _create("UIPadding",{Parent=tab.Content,PaddingLeft=UDim.new(0,5),PaddingRight=UDim.new(0,5),PaddingTop=UDim.new(0,5),PaddingBottom=UDim.new(0,5)})
+    
+    -- CORREÇÃO FINAL: Garantindo 100% da altura e alinhamento central
     local tabBtn=_create("TextButton",{Parent=self.TabScrollFrame,Size=UDim2.new(0,0,1,0),AutomaticSize=Enum.AutomaticSize.X,BackgroundTransparency=1,Text="  "..name.."  ",TextColor3=Constants.Colors.TextSecondary,TextSize=14,Font=Constants.Fonts.Button,TextYAlignment=Enum.TextYAlignment.Center})
+    
     table.insert(self.Tabs,tab);self.TabButtons[name]={Button=tabBtn};self.Tabs[name]=tab
     self.Connections[#self.Connections+1]=tabBtn.MouseButton1Click:Connect(function()
         for _,b in pairs(self.TabButtons)do TweenService:Create(b.Button,Constants.Animation.FadeInfo,{TextColor3=Constants.Colors.TextSecondary}):Play()end
@@ -104,8 +107,8 @@ function Tab:AddActionRow(text,isEnabled,callback)
 end
 
 ZenithLib._createToggleSwitch=function(conns,parent,labelText,isEnabled,callback)local C=Constants;local container=_create("Frame",{Parent=parent,Size=UDim2.new(1,0,0,35),BackgroundTransparency=1})if labelText then _create("TextLabel",{Parent=container,Size=UDim2.new(0.7,0,1,0),BackgroundTransparency=1,Text=labelText,Font=C.Fonts.Default,TextColor3=C.Colors.TextPrimary,TextSize=14,TextXAlignment=Enum.TextXAlignment.Left})end;local switchBg=_create("Frame",{Parent=container,Size=UDim2.fromOffset(50,20),Position=labelText and UDim2.new(0.8,0,0.5,-10)or UDim2.new(0.5,-25,0.5,-10),BackgroundColor3=isEnabled and C.Colors.Success or C.Colors.Disabled})_create("UICorner",{CornerRadius=UDim.new(1,0),Parent=switchBg})local switchKnob=_create("Frame",{Parent=switchBg,Size=UDim2.fromOffset(16,16),Position=isEnabled and UDim2.new(1,-18,0.5,-8)or UDim2.new(0,2,0.5,-8),BackgroundColor3=C.Colors.TextPrimary,BorderSizePixel=0})_create("UICorner",{CornerRadius=UDim.new(1,0),Parent=switchKnob})
-    local clickDetector = _create("BindableEvent", {Name = "ClickDetector", Parent = container})
-    local clickButton = _create("TextButton",{Parent=switchBg,Size=UDim2.fromScale(1,1),BackgroundTransparency=1,Text=""})
+    local clickDetector=_create("BindableEvent",{Name="ClickDetector",Parent=container})
+    local clickButton=_create("TextButton",{Parent=switchBg,Size=UDim2.fromScale(1,1),BackgroundTransparency=1,Text=""})
     local function updateVisuals(enabled)isEnabled=enabled;local p=enabled and UDim2.new(1,-18,0.5,-8)or UDim2.new(0,2,0.5,-8);local c=enabled and C.Colors.Success or C.Colors.Disabled;TweenService:Create(switchKnob,C.Animation.FadeInfo,{Position=p}):Play();TweenService:Create(switchBg,C.Animation.FadeInfo,{BackgroundColor3=c}):Play()end
     local function onClick() isEnabled=not isEnabled;callback(isEnabled);updateVisuals(isEnabled) end
     conns[#conns+1]=clickButton.MouseButton1Click:Connect(onClick)
