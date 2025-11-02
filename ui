@@ -1,8 +1,8 @@
 --[[
-    ZenithLib v2.0 - Final
-    - Correção de CanvasSize para scroll automático.
-    - Adicionado componente AddActionRow para Botão + Toggle.
-    - Lógica de sincronização de componentes movida para a biblioteca.
+    ZenithLib v3.0 - Final
+    - Implementado scroll automático para o conteúdo das abas (CanvasSize dinâmico).
+    - Implementada barra de abas rolável horizontalmente para conteúdo excessivo.
+    - Arquitetura de layout robusta para prevenir cortes e desalinhamentos.
 ]]
 
 local ZenithLib = {}
@@ -14,14 +14,14 @@ local CoreGui = game:GetService("CoreGui")
 
 local Constants = {
     Colors = {
-        Background=Color3.fromRGB(24,25,28),Primary=Color3.fromRGB(33,34,40),Secondary=Color3.fromRGB(45,46,52),
-        Accent=Color3.fromRGB(0,150,255),AccentHover=Color3.fromRGB(50,170,255),Success=Color3.fromRGB(0,180,120),
-        Danger=Color3.fromRGB(225,70,70),Disabled=Color3.fromRGB(80,80,80),TextPrimary=Color3.fromRGB(230,230,230),
+        Background=Color3.fromRGB(24,25,28), Primary=Color3.fromRGB(33,34,40), Secondary=Color3.fromRGB(45,46,52),
+        Accent=Color3.fromRGB(0,150,255), AccentHover=Color3.fromRGB(50,170,255), Success=Color3.fromRGB(0,180,120),
+        Danger=Color3.fromRGB(225,70,70), Disabled=Color3.fromRGB(80,80,80), TextPrimary=Color3.fromRGB(230,230,230),
         TextSecondary=Color3.fromRGB(150,150,150)
     },
-    Fonts={Title=Enum.Font.GothamBold,Default=Enum.Font.Gotham,Button=Enum.Font.GothamSemibold},
-    Animation={FadeInfo=TweenInfo.new(0.2,Enum.EasingStyle.Sine,Enum.EasingDirection.Out),SlideInfo=TweenInfo.new(0.3,Enum.EasingStyle.Quint,Enum.EasingDirection.Out)},
-    Assets={Locked="rbxassetid://3926305904",Unlocked="rbxassetid://3926306024"}
+    Fonts={Title=Enum.Font.GothamBold, Default=Enum.Font.Gotham, Button=Enum.Font.GothamSemibold},
+    Animation={FadeInfo=TweenInfo.new(0.2,Enum.EasingStyle.Sine,Enum.EasingDirection.Out), SlideInfo=TweenInfo.new(0.3,Enum.EasingStyle.Quint,Enum.EasingDirection.Out)},
+    Assets={Locked="rbxassetid://3926305904", Unlocked="rbxassetid://3926306024"}
 }
 
 local connections={}
@@ -40,11 +40,18 @@ function ZenithLib:CreateWindow(title,size)
     local Header=_create("Frame",{Parent=self.MainFrame,Size=UDim2.new(1,0,0,45),BackgroundTransparency=1})
     _create("TextLabel",{Parent=Header,Size=UDim2.new(1,0,1,0),BackgroundTransparency=1,Text=title,TextColor3=Constants.Colors.TextPrimary,TextSize=18,Font=Constants.Fonts.Title})
     local MainContent=_create("Frame",{Parent=self.MainFrame,Size=UDim2.new(1,-30,1,-50),Position=UDim2.new(0,15,0,45),BackgroundTransparency=1})
-    self.TabFrame=_create("Frame",{Parent=MainContent,Size=UDim2.new(1,0,0,35),BackgroundTransparency=1})
+    
+    -- CORREÇÃO: Barra de abas agora é um ScrollingFrame horizontal
+    local TabFrameContainer = _create("Frame", {Parent = MainContent, Size = UDim2.new(1, 0, 0, 35), BackgroundTransparency = 1, ClipsDescendants = true})
+    self.TabScrollFrame = _create("ScrollingFrame", {Parent = TabFrameContainer, Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollingDirection = Enum.ScrollingDirection.X, ScrollBarThickness = 0, CanvasSize = UDim2.new()})
+    
     self.ContentFrame=_create("Frame",{Parent=MainContent,Size=UDim2.new(1,0,1,-40),Position=UDim2.new(0,0,0,40),BackgroundTransparency=1})
     self.Tabs,self.TabButtons={},{}
-    _create("UIListLayout",{Parent=self.TabFrame,FillDirection=Enum.FillDirection.Horizontal,SortOrder=Enum.SortOrder.LayoutOrder,VerticalAlignment=Enum.VerticalAlignment.Center})
-    self.SelectionUnderline=_create("Frame",{Parent=self.TabFrame,BackgroundColor3=Constants.Colors.Accent,BorderSizePixel=0,ZIndex=2})
+    
+    local tabListLayout = _create("UIListLayout",{Parent=self.TabScrollFrame,FillDirection=Enum.FillDirection.Horizontal,SortOrder=Enum.SortOrder.LayoutOrder,VerticalAlignment=Enum.VerticalAlignment.Center})
+    connections[#connections+1]=tabListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function() self.TabScrollFrame.CanvasSize=UDim2.new(0,tabListLayout.AbsoluteContentSize.X,0,0) end)
+    
+    self.SelectionUnderline=_create("Frame",{Parent=self.TabScrollFrame,BackgroundColor3=Constants.Colors.Accent,BorderSizePixel=0,ZIndex=2})
     _create("UICorner",{CornerRadius=UDim.new(1,0),Parent=self.SelectionUnderline})
     return self
 end
@@ -54,42 +61,32 @@ function Window:AddTab(name)
     tab.Container=_create("CanvasGroup",{Parent=self.ContentFrame,Size=UDim2.fromScale(1,1),BackgroundTransparency=1,Visible=#self.Tabs==0,GroupTransparency=#self.Tabs==0 and 0 or 1})
     tab.Content=_create("ScrollingFrame",{Parent=tab.Container,Size=UDim2.fromScale(1,1),BackgroundTransparency=1,BorderSizePixel=0,ScrollBarThickness=6,ScrollBarImageColor3=Constants.Colors.Accent,CanvasSize=UDim2.new()})
     local listLayout=_create("UIListLayout",{Parent=tab.Content,Padding=UDim.new(0,10),SortOrder=Enum.SortOrder.LayoutOrder})
-    _create("UIPadding",{Parent=tab.Content,PaddingTop=UDim.new(0,10),PaddingLeft=UDim.new(0,5),PaddingRight=UDim.new(0,5)})
+    _create("UIPadding",{Parent=tab.Content,PaddingLeft=UDim.new(0,5),PaddingRight=UDim.new(0,5)})
     
-    -- CORREÇÃO: Conexão para atualizar o CanvasSize automaticamente
-    connections[#connections+1]=listLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-        tab.Content.CanvasSize=UDim2.new(0,0,0,listLayout.AbsoluteContentSize.Y)
-    end)
+    connections[#connections+1]=listLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function() tab.Content.CanvasSize=UDim2.new(0,0,0,listLayout.AbsoluteContentSize.Y) end)
+    
+    local tabBtn=_create("TextButton",{Parent=self.TabScrollFrame,Size=UDim2.new(0,80,1,-5),AutomaticSize=Enum.AutomaticSize.X,BackgroundTransparency=1,Text="  "..name.."  ",TextColor3=Constants.Colors.TextSecondary,TextSize=14,Font=Constants.Fonts.Button})
+    table.insert(self.Tabs,tab);self.TabButtons[name]={Button=tabBtn}
 
-    local container=_create("Frame",{Parent=self.TabFrame,Size=UDim2.new(0,0,1,0),BackgroundTransparency=1})
-    local tabBtn=_create("TextButton",{Parent=container,Size=UDim2.new(1,-5,1,0),Position=UDim2.fromScale(0.5,0.5),AnchorPoint=Vector2.new(0.5,0.5),BackgroundTransparency=1,Text=name,TextColor3=Constants.Colors.TextSecondary,TextSize=14,Font=Constants.Fonts.Button})
-    table.insert(self.Tabs,tab);self.TabButtons[name]={Button=tabBtn,Container=container}
-    for _,btnData in pairs(self.TabButtons)do btnData.Container.Size=UDim2.new(1/#self.Tabs,0,1,0)end
-    connections[#connections+1]=tabBtn.MouseButton1Click:Connect(function()for _,b in pairs(self.TabButtons)do TweenService:Create(b.Button,Constants.Animation.FadeInfo,{TextColor3=Constants.Colors.TextSecondary}):Play()end;TweenService:Create(tabBtn,Constants.Animation.FadeInfo,{TextColor3=Constants.Colors.TextPrimary}):Play();local goalSize=UDim2.new(container.Size.X.Scale,-5,0,3);local goalPos=UDim2.new(container.Position.X.Scale,container.Position.X.Offset+2.5,1,-3);TweenService:Create(self.SelectionUnderline,Constants.Animation.SlideInfo,{Size=goalSize,Position=goalPos}):Play();for _,otherTab in ipairs(self.Tabs)do if otherTab.Container.Visible then local currentTabContainer=otherTab.Container;local tween=TweenService:Create(currentTabContainer,Constants.Animation.FadeInfo,{GroupTransparency=1});tween.Completed:Connect(function()if tween.PlaybackState==Enum.PlaybackState.Completed then currentTabContainer.Visible=false end end);tween:Play()end end;task.spawn(function()task.wait(Constants.Animation.FadeInfo.Time);tab.Container.Visible,tab.Container.GroupTransparency=true,1;TweenService:Create(tab.Container,Constants.Animation.FadeInfo,{GroupTransparency=0}):Play()end)end)
-    if #self.Tabs==1 then tabBtn.TextColor3=Constants.Colors.TextPrimary;task.spawn(function()task.wait(0.1)if not self.SelectionUnderline or not self.SelectionUnderline.Parent then return end;self.SelectionUnderline.Size=UDim2.new(container.Size.X.Scale,-5,0,3);self.SelectionUnderline.Position=UDim2.new(container.Position.X.Scale,container.Position.X.Offset+2.5,1,-3)end)end
+    connections[#connections+1]=tabBtn.MouseButton1Click:Connect(function()
+        for _,b in pairs(self.TabButtons)do TweenService:Create(b.Button,Constants.Animation.FadeInfo,{TextColor3=Constants.Colors.TextSecondary}):Play()end
+        TweenService:Create(tabBtn,Constants.Animation.FadeInfo,{TextColor3=Constants.Colors.TextPrimary}):Play()
+        local goalSize=UDim2.new(0,tabBtn.AbsoluteSize.X,0,3);local goalPos=UDim2.new(0,tabBtn.AbsolutePosition.X - self.TabScrollFrame.AbsolutePosition.X,1,-3)
+        TweenService:Create(self.SelectionUnderline,Constants.Animation.SlideInfo,{Size=goalSize,Position=goalPos}):Play()
+        for _,otherTab in ipairs(self.Tabs)do if otherTab.Container.Visible then local currentTabContainer=otherTab.Container;local tween=TweenService:Create(currentTabContainer,Constants.Animation.FadeInfo,{GroupTransparency=1});tween.Completed:Connect(function()if tween.PlaybackState==Enum.PlaybackState.Completed then currentTabContainer.Visible=false end end);tween:Play()end end
+        task.spawn(function()task.wait(Constants.Animation.FadeInfo.Time);tab.Container.Visible,tab.Container.GroupTransparency=true,1;TweenService:Create(tab.Container,Constants.Animation.FadeInfo,{GroupTransparency=0}):Play()end)
+    end)
+    if #self.Tabs==1 then tabBtn.TextColor3=Constants.Colors.TextPrimary;task.spawn(function()task.wait(0.1)if not self.SelectionUnderline or not self.SelectionUnderline.Parent then return end;self.SelectionUnderline.Size=UDim2.new(0,tabBtn.AbsoluteSize.X,0,3);self.SelectionUnderline.Position=UDim2.new(0,tabBtn.AbsolutePosition.X - self.TabScrollFrame.AbsolutePosition.X,1,-3)end)end
     return tab
 end
 
--- Funções para adicionar componentes
-function Tab:AddToggle(l,e,c)return ZenithLib._createToggleSwitch(self.Content,l,e,c)end
-function Tab:AddSlider(l,min,max,i,c)return ZenithLib._createSlider(self.Content,l,min,max,i,c)end
-function Tab:AddLabel(t)return _create("TextLabel",{Parent=self.Content,Size=UDim2.new(1,0,0,20),BackgroundTransparency=1,Font=Constants.Fonts.Default,TextColor3=Constants.Colors.TextSecondary,Text=t,TextSize=12,TextXAlignment=Enum.TextXAlignment.Left})end
-function Tab:AddItemButton(t,c)local C=Constants;local b=_create("TextButton",{Parent=self.Content,Name=t,Size=UDim2.new(1,0,0,35),BackgroundColor3=C.Colors.Secondary,Text=""})_create("UICorner",{CornerRadius=UDim.new(0,6),Parent=b})local i=_create("ImageLabel",{Parent=b,Name="Icon",Size=UDim2.new(0,18,0,18),Position=UDim2.new(0,10,0.5,-9),BackgroundTransparency=1,Image=C.Assets.Unlocked,ImageColor3=C.Colors.TextPrimary})_create("TextLabel",{Parent=b,Name="TextLabel",Size=UDim2.new(1,-45,1,0),Position=UDim2.new(0,35,0,0),BackgroundTransparency=1,Text=t,TextColor3=C.Colors.TextPrimary,Font=C.Fonts.Default,TextSize=14,TextXAlignment=Enum.TextXAlignment.Left})connections[#connections+1]=b.MouseButton1Click:Connect(function()c(i,b.TextLabel)end)return b,i end
--- CORREÇÃO: Novo componente ActionRow
-function Tab:AddActionRow(text, isEnabled, callback)
-    local C=Constants
-    local actionBar=_create("Frame",{Parent=self.Content,Size=UDim2.new(1,0,0,35),BackgroundTransparency=1})
-    local button=_create("TextButton",{Parent=actionBar,Name="ActionButton",Size=UDim2.new(1,-65,1,0),Position=UDim2.fromScale(0,0),BackgroundColor3=isEnabled and C.Colors.Success or C.Colors.Danger,Text=isEnabled and "Parar Compra" or text,TextColor3=C.Colors.TextPrimary,TextSize=14,Font=C.Fonts.Button})
-    _create("UICorner",{CornerRadius=UDim.new(0,6),Parent=button})
-    local toggleContainer,toggleUpdateFunc=ZenithLib._createToggleSwitch(actionBar,nil,isEnabled,function(newVal)
-        isEnabled=newVal;button.BackgroundColor3=isEnabled and C.Colors.Success or C.Colors.Danger;button.Text=isEnabled and "Parar Compra" or text;callback(isEnabled)
-    end)
-    toggleContainer.Size=UDim2.new(0,50,1,0);toggleContainer.Position=UDim2.new(1,-50,0,0)
-    connections[#connections+1]=button.MouseButton1Click:Connect(function()
-        isEnabled=not isEnabled;toggleUpdateFunc(isEnabled);callback(isEnabled)
-    end)
-    return button
-end
+-- CORREÇÃO: As funções agora atualizam o scroll
+function Tab:UpdateCanvasSize() task.wait(); local list = self.Content:FindFirstChildOfClass("UIListLayout"); if list then self.Content.CanvasSize=UDim2.new(0,0,0,list.AbsoluteContentSize.Y + 20) end end
+function Tab:AddToggle(l,e,c) local t,u=ZenithLib._createToggleSwitch(self.Content,l,e,c); self:UpdateCanvasSize(); return t,u end
+function Tab:AddSlider(l,min,max,i,c) local s=ZenithLib._createSlider(self.Content,l,min,max,i,c); self:UpdateCanvasSize(); return s end
+function Tab:AddLabel(t) local l=_create("TextLabel",{Parent=self.Content,Size=UDim2.new(1,0,0,20),BackgroundTransparency=1,Font=Constants.Fonts.Default,TextColor3=Constants.Colors.TextSecondary,Text=t,TextSize=12,TextXAlignment=Enum.TextXAlignment.Left}); self:UpdateCanvasSize(); return l end
+function Tab:AddItemButton(t,c) local C=Constants;local b=_create("TextButton",{Parent=self.Content,Name=t,Size=UDim2.new(1,0,0,35),BackgroundColor3=C.Colors.Secondary,Text=""})_create("UICorner",{CornerRadius=UDim.new(0,6),Parent=b})local i=_create("ImageLabel",{Parent=b,Name="Icon",Size=UDim2.new(0,18,0,18),Position=UDim2.new(0,10,0.5,-9),BackgroundTransparency=1,Image=C.Assets.Unlocked,ImageColor3=C.Colors.TextPrimary})_create("TextLabel",{Parent=b,Name="TextLabel",Size=UDim2.new(1,-45,1,0),Position=UDim2.new(0,35,0,0),BackgroundTransparency=1,Text=t,TextColor3=C.Colors.TextPrimary,Font=C.Fonts.Default,TextSize=14,TextXAlignment=Enum.TextXAlignment.Left})connections[#connections+1]=b.MouseButton1Click:Connect(function()c(i,b.TextLabel)end);self:UpdateCanvasSize();return b,i end
+function Tab:AddActionRow(text,isEnabled,callback) local C=Constants;local actionBar=_create("Frame",{Parent=self.Content,Size=UDim2.new(1,0,0,35),BackgroundTransparency=1})local button=_create("TextButton",{Parent=actionBar,Name="ActionButton",Size=UDim2.new(1,-65,1,0),Position=UDim2.fromScale(0,0),BackgroundColor3=isEnabled and C.Colors.Success or C.Colors.Danger,Text=isEnabled and "Parar Compra" or text,TextColor3=C.Colors.TextPrimary,TextSize=14,Font=C.Fonts.Button})_create("UICorner",{CornerRadius=UDim.new(0,6),Parent=button})local _,toggleUpdateFunc=ZenithLib._createToggleSwitch(actionBar,nil,isEnabled,function(newVal) isEnabled=newVal;button.BackgroundColor3=isEnabled and C.Colors.Success or C.Colors.Danger;button.Text=isEnabled and "Parar Compra" or text;callback(isEnabled)end)toggleUpdateFunc.Parent.Size=UDim2.new(0,50,1,0);toggleUpdateFunc.Parent.Position=UDim2.new(1,-50,0,0);connections[#connections+1]=button.MouseButton1Click:Connect(function()isEnabled=not isEnabled;toggleUpdateFunc(isEnabled);callback(isEnabled)end);self:UpdateCanvasSize();return button end
 
 -- Implementações dos componentes (internas)
 ZenithLib._createToggleSwitch=function(parent,labelText,isEnabled,callback)local C=Constants;local container=_create("Frame",{Parent=parent,Size=UDim2.new(1,0,0,35),BackgroundTransparency=1})if labelText then _create("TextLabel",{Parent=container,Size=UDim2.new(0.7,0,1,0),BackgroundTransparency=1,Text=labelText,Font=C.Fonts.Default,TextColor3=C.Colors.TextPrimary,TextSize=14,TextXAlignment=Enum.TextXAlignment.Left})end;local switchBg=_create("Frame",{Parent=container,Size=UDim2.fromOffset(50,20),Position=labelText and UDim2.new(0.8,0,0.5,-10)or UDim2.new(0.5,-25,0.5,-10),BackgroundColor3=isEnabled and C.Colors.Success or C.Colors.Disabled})_create("UICorner",{CornerRadius=UDim.new(1,0),Parent=switchBg})local switchKnob=_create("Frame",{Parent=switchBg,Size=UDim2.fromOffset(16,16),Position=isEnabled and UDim2.new(1,-18,0.5,-8)or UDim2.new(0,2,0.5,-8),BackgroundColor3=C.Colors.TextPrimary,BorderSizePixel=0})_create("UICorner",{CornerRadius=UDim.new(1,0),Parent=switchKnob})local clickDetector=_create("TextButton",{Parent=switchBg,Size=UDim2.fromScale(1,1),BackgroundTransparency=1,Text=""})local function updateVisuals(enabled)isEnabled=enabled;local p=enabled and UDim2.new(1,-18,0.5,-8)or UDim2.new(0,2,0.5,-8);local c=enabled and C.Colors.Success or C.Colors.Disabled;TweenService:Create(switchKnob,C.Animation.FadeInfo,{Position=p}):Play()TweenService:Create(switchBg,C.Animation.FadeInfo,{BackgroundColor3=c}):Play()end;connections[#connections+1]=clickDetector.MouseButton1Click:Connect(function()isEnabled=not isEnabled;callback(isEnabled);updateVisuals(isEnabled)end)return container,updateVisuals end
