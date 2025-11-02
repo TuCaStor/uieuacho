@@ -1,108 +1,114 @@
 --[[
-    ZenithLib v4.2 - Final & Robusta
-    - Correção definitiva do erro "attempt to index function with 'Parent'".
+    ZenithLib v5.0 - Final & Robusta
+    - Lógica de recarregamento automático (Cleanup) integrada.
+    - Funcionalidade Anti-AFK integrada via Window:EnableAntiAFK().
+    - Sincronização bidirecional do ActionRow corrigida.
+    - Scroll automático para abas e conteúdo usando AutomaticCanvasSize.
+    - Código refatorado para maior clareza e eficiência.
 ]]
 
 local ZenithLib = {}
 
 -- Serviços e Constantes
-local TweenService = game:GetService("TweenService")
-local UserInputService = game:GetService("UserInputService")
-local CoreGui = game:GetService("CoreGui")
+local TweenService, UserInputService, CoreGui, Players, VirtualUser = 
+    game:GetService("TweenService"), game:GetService("UserInputService"), game:GetService("CoreGui"), 
+    game:GetService("Players"), game:GetService("VirtualUser")
 
 local Constants = {
-    Colors = {
-        Background=Color3.fromRGB(24,25,28), Primary=Color3.fromRGB(33,34,40), Secondary=Color3.fromRGB(45,46,52),
-        Accent=Color3.fromRGB(0,150,255), AccentHover=Color3.fromRGB(50,170,255), Success=Color3.fromRGB(0,180,120),
-        Danger=Color3.fromRGB(225,70,70), Disabled=Color3.fromRGB(80,80,80), TextPrimary=Color3.fromRGB(230,230,230),
-        TextSecondary=Color3.fromRGB(150,150,150)
-    },
-    Fonts={Title=Enum.Font.GothamBold, Default=Enum.Font.Gotham, Button=Enum.Font.GothamSemibold},
-    Animation={FadeInfo=TweenInfo.new(0.2,Enum.EasingStyle.Sine,Enum.EasingDirection.Out), SlideInfo=TweenInfo.new(0.3,Enum.EasingStyle.Quint,Enum.EasingDirection.Out)},
-    Assets={Locked="rbxassetid://3926305904", Unlocked="rbxassetid://3926306024"}
+    Colors={Background=Color3.fromRGB(24,25,28),Primary=Color3.fromRGB(33,34,40),Secondary=Color3.fromRGB(45,46,52),Accent=Color3.fromRGB(0,150,255),AccentHover=Color3.fromRGB(50,170,255),Success=Color3.fromRGB(0,180,120),Danger=Color3.fromRGB(225,70,70),Disabled=Color3.fromRGB(80,80,80),TextPrimary=Color3.fromRGB(230,230,230),TextSecondary=Color3.fromRGB(150,150,150)},
+    Fonts={Title=Enum.Font.GothamBold,Default=Enum.Font.Gotham,Button=Enum.Font.GothamSemibold},
+    Animation={FadeInfo=TweenInfo.new(0.2,Enum.EasingStyle.Sine,Enum.EasingDirection.Out),SlideInfo=TweenInfo.new(0.3,Enum.EasingStyle.Quint,Enum.EasingDirection.Out)},
+    Assets={Locked="rbxassetid://3926305904",Unlocked="rbxassetid://3926306024"}
 }
 
-local connections={}
 local function _create(t,p)local e=Instance.new(t);for i,v in pairs(p)do e[i]=v end;return e end
 
 local Window,Tab={},{}
 Window.__index,Tab.__index=Window,Tab
 
+-- Lógica de Recarregamento e Construtor da Janela
 function ZenithLib:CreateWindow(title,size)
-    for _,c in pairs(connections)do c:Disconnect()end;connections={}
-    if CoreGui:FindFirstChild("ZenithLib_Window")then CoreGui.ZenithLib_Window:Destroy()end
+    if getgenv().ZenithLibInstance then getgenv().ZenithLibInstance:Destroy() end
+    
     size=size or UDim2.new(0,360,0,430);local self=setmetatable({},Window)
+    self.Connections={}
     self.ScreenGui=_create("ScreenGui",{Name="ZenithLib_Window",Parent=CoreGui,ResetOnSpawn=false})
     self.MainFrame=_create("Frame",{Parent=self.ScreenGui,Size=size,Position=UDim2.new(0.5,-size.X.Offset/2,0.5,-size.Y.Offset/2),BackgroundColor3=Constants.Colors.Background,BorderSizePixel=0,Active=true,Draggable=true,ClipsDescendants=true})
     _create("UICorner",{CornerRadius=UDim.new(0,8),Parent=self.MainFrame});_create("UIStroke",{Color=Constants.Colors.Primary,Thickness=2,Parent=self.MainFrame})
     local Header=_create("Frame",{Parent=self.MainFrame,Size=UDim2.new(1,0,0,45),BackgroundTransparency=1})
     _create("TextLabel",{Parent=Header,Size=UDim2.new(1,0,1,0),BackgroundTransparency=1,Text=title,TextColor3=Constants.Colors.TextPrimary,TextSize=18,Font=Constants.Fonts.Title})
     local MainContent=_create("Frame",{Parent=self.MainFrame,Size=UDim2.new(1,-30,1,-50),Position=UDim2.new(0,15,0,45),BackgroundTransparency=1})
-    local TabFrameContainer = _create("Frame", {Parent = MainContent, Size = UDim2.new(1, 0, 0, 35), BackgroundTransparency = 1, ClipsDescendants = true})
-    self.TabScrollFrame = _create("ScrollingFrame", {Parent = TabFrameContainer, Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollingDirection = Enum.ScrollingDirection.X, ScrollBarThickness = 0, AutomaticCanvasSize = Enum.AutomaticSize.X})
+    local TabFrameContainer=_create("Frame",{Parent=MainContent,Size=UDim2.new(1,0,0,35),BackgroundTransparency=1,ClipsDescendants=true})
+    self.TabScrollFrame=_create("ScrollingFrame",{Parent=TabFrameContainer,Size=UDim2.new(1,0,1,0),BackgroundTransparency=1,BorderSizePixel=0,ScrollingDirection=Enum.ScrollingDirection.X,ScrollBarThickness=0,AutomaticCanvasSize=Enum.AutomaticSize.X})
     self.ContentFrame=_create("Frame",{Parent=MainContent,Size=UDim2.new(1,0,1,-40),Position=UDim2.new(0,0,0,40),BackgroundTransparency=1})
     self.Tabs,self.TabButtons={},{}
-    local tabListLayout = _create("UIListLayout",{Parent=self.TabScrollFrame,FillDirection=Enum.FillDirection.Horizontal,SortOrder=Enum.SortOrder.LayoutOrder,VerticalAlignment=Enum.VerticalAlignment.Center, Padding = UDim.new(0, 5)})
+    _create("UIListLayout",{Parent=self.TabScrollFrame,FillDirection=Enum.FillDirection.Horizontal,SortOrder=Enum.SortOrder.LayoutOrder,VerticalAlignment=Enum.VerticalAlignment.Center,Padding=UDim.new(0,5)})
     self.SelectionUnderline=_create("Frame",{Parent=self.TabScrollFrame,BackgroundColor3=Constants.Colors.Accent,BorderSizePixel=0,ZIndex=2})
     _create("UICorner",{CornerRadius=UDim.new(1,0),Parent=self.SelectionUnderline})
+    
+    getgenv().ZenithLibInstance = self
     return self
+end
+
+function Window:Destroy()
+    for _,c in pairs(self.Connections)do c:Disconnect()end
+    self.ScreenGui:Destroy()
+    getgenv().ZenithLibInstance=nil
+    print("ZenithLib: Janela anterior destruída.")
+end
+
+function Window:EnableAntiAFK()
+    local antiAfkEnabled = true
+    local antiAfkToggle -- será definido depois
+    
+    -- Se já existe uma aba de config, adiciona lá. Senão, cria uma.
+    local configTab = self.Tabs["Config."] or self:AddTab("Config.")
+    
+    _, antiAfkToggle = configTab:AddToggle("Anti-AFK", antiAfkEnabled, function(isEnabled)
+        antiAfkEnabled = isEnabled
+    end)
+    
+    self.Connections[#self.Connections+1] = Players.LocalPlayer.Idled:Connect(function()
+        if antiAfkEnabled then
+            warn("ZenithLib Anti-AFK: Inatividade detectada. Simulando ação.")
+            VirtualUser:KeyDown(Enum.KeyCode.Space); task.wait(0.1); VirtualUser:KeyUp(Enum.KeyCode.Space)
+        end
+    end)
 end
 
 function Window:AddTab(name)
     local self,tab=self,setmetatable({},Tab);tab.ParentWindow,tab.Name=self,name
     tab.Container=_create("CanvasGroup",{Parent=self.ContentFrame,Size=UDim2.fromScale(1,1),BackgroundTransparency=1,Visible=#self.Tabs==0,GroupTransparency=#self.Tabs==0 and 0 or 1})
-    tab.Content=_create("ScrollingFrame",{Parent=tab.Container,Size=UDim2.fromScale(1,1),BackgroundTransparency=1,BorderSizePixel=0,ScrollBarThickness=6,ScrollBarImageColor3=Constants.Colors.Accent,AutomaticCanvasSize = Enum.AutomaticSize.Y})
+    tab.Content=_create("ScrollingFrame",{Parent=tab.Container,Size=UDim2.fromScale(1,1),BackgroundTransparency=1,BorderSizePixel=0,ScrollBarThickness=6,ScrollBarImageColor3=Constants.Colors.Accent,AutomaticCanvasSize=Enum.AutomaticSize.Y})
     _create("UIListLayout",{Parent=tab.Content,Padding=UDim.new(0,10),SortOrder=Enum.SortOrder.LayoutOrder})
-    _create("UIPadding",{Parent=tab.Content,PaddingLeft=UDim.new(0,5),PaddingRight=UDim.new(0,5)})
-    local tabBtn=_create("TextButton",{Parent=self.TabScrollFrame,Size=UDim2.new(0,0,1,-5),AutomaticSize=Enum.AutomaticSize.X,BackgroundTransparency=1,Text="  "..name.."  ",TextColor3=Constants.Colors.TextSecondary,TextSize=14,Font=Constants.Fonts.Button})
+    _create("UIPadding",{Parent=tab.Content,PaddingLeft=UDim.new(0,5),PaddingRight=UDim.new(0,5),PaddingTop=UDim.new(0,5),PaddingBottom=UDim.new(0,5)})
+    local tabBtn=_create("TextButton",{Parent=self.TabScrollFrame,Size=UDim2.new(0,0,1,0),AutomaticSize=Enum.AutomaticSize.X,BackgroundTransparency=1,Text="  "..name.."  ",TextColor3=Constants.Colors.TextSecondary,TextSize=14,Font=Constants.Fonts.Button,TextYAlignment=Enum.TextYAlignment.Center})
     table.insert(self.Tabs,tab);self.TabButtons[name]={Button=tabBtn}
+    self.Tabs[name] = tab -- Permite acessar a aba pelo nome
+    
     connections[#connections+1]=tabBtn.MouseButton1Click:Connect(function()
         for _,b in pairs(self.TabButtons)do TweenService:Create(b.Button,Constants.Animation.FadeInfo,{TextColor3=Constants.Colors.TextSecondary}):Play()end
         TweenService:Create(tabBtn,Constants.Animation.FadeInfo,{TextColor3=Constants.Colors.TextPrimary}):Play()
-        local goalSize=UDim2.new(0,tabBtn.AbsoluteSize.X,0,3);local goalPos=UDim2.new(0,tabBtn.AbsolutePosition.X - self.TabScrollFrame.AbsolutePosition.X,1,-3)
+        local goalSize=UDim2.new(0,tabBtn.AbsoluteSize.X,0,3);local goalPos=UDim2.new(0,tabBtn.AbsolutePosition.X-self.TabScrollFrame.AbsolutePosition.X,1,-3)
         TweenService:Create(self.SelectionUnderline,Constants.Animation.SlideInfo,{Size=goalSize,Position=goalPos}):Play()
         for _,otherTab in ipairs(self.Tabs)do if otherTab.Container.Visible then local currentTabContainer=otherTab.Container;local tween=TweenService:Create(currentTabContainer,Constants.Animation.FadeInfo,{GroupTransparency=1});tween.Completed:Connect(function()if tween.PlaybackState==Enum.PlaybackState.Completed then currentTabContainer.Visible=false end end);tween:Play()end end
         task.spawn(function()task.wait(Constants.Animation.FadeInfo.Time);tab.Container.Visible,tab.Container.GroupTransparency=true,1;TweenService:Create(tab.Container,Constants.Animation.FadeInfo,{GroupTransparency=0}):Play()end)
     end)
-    if #self.Tabs==1 then tabBtn.TextColor3=Constants.Colors.TextPrimary;task.spawn(function()task.wait(0.1)if not self.SelectionUnderline or not self.SelectionUnderline.Parent then return end;self.SelectionUnderline.Size=UDim2.new(0,tabBtn.AbsoluteSize.X,0,3);self.SelectionUnderline.Position=UDim2.new(0,tabBtn.AbsolutePosition.X - self.TabScrollFrame.AbsolutePosition.X,1,-3)end)end
+    if #self.Tabs==1 then tabBtn.TextColor3=Constants.Colors.TextPrimary;task.spawn(function()task.wait(0.1)if not self.SelectionUnderline or not self.SelectionUnderline.Parent then return end;self.SelectionUnderline.Size=UDim2.new(0,tabBtn.AbsoluteSize.X,0,3);self.SelectionUnderline.Position=UDim2.new(0,tabBtn.AbsolutePosition.X-self.TabScrollFrame.AbsolutePosition.X,1,-3)end)end
     return tab
 end
 
-function Tab:AddToggle(l,e,c)return ZenithLib._createToggleSwitch(self.Content,l,e,c)end
-function Tab:AddSlider(l,min,max,i,c)return ZenithLib._createSlider(self.Content,l,min,max,i,c)end
-function Tab:AddLabel(t)return _create("TextLabel",{Parent=self.Content,Size=UDim2.new(1,0,0,20),BackgroundTransparency=1,Font=Constants.Fonts.Default,TextColor3=Constants.Colors.TextSecondary,Text=t,TextSize=12,TextXAlignment=Enum.TextXAlignment.Left})end
-function Tab:AddItemButton(t,c)local C=Constants;local b=_create("TextButton",{Parent=self.Content,Name=t,Size=UDim2.new(1,0,0,35),BackgroundColor3=C.Colors.Secondary,Text=""})_create("UICorner",{CornerRadius=UDim.new(0,6),Parent=b})local i=_create("ImageLabel",{Parent=b,Name="Icon",Size=UDim2.new(0,18,0,18),Position=UDim2.new(0,10,0.5,-9),BackgroundTransparency=1,Image=C.Assets.Unlocked,ImageColor3=C.Colors.TextPrimary})_create("TextLabel",{Parent=b,Name="TextLabel",Size=UDim2.new(1,-45,1,0),Position=UDim2.new(0,35,0,0),BackgroundTransparency=1,Text=t,TextColor3=C.Colors.TextPrimary,Font=C.Fonts.Default,TextSize=14,TextXAlignment=Enum.TextXAlignment.Left})connections[#connections+1]=b.MouseButton1Click:Connect(function()c(i,b.TextLabel)end)return b,i end
+function Tab:AddToggle(l,e,c)return ZenithLib._createToggleSwitch(self.ParentWindow.Connections,self.Content,l,e,c)end
+function Tab:AddSlider(l,min,max,i,c)return ZenithLib._createSlider(self.ParentWindow.Connections,self.Content,l,min,max,i,c)end
+function Tab:AddLabel(t)return _create("TextLabel",{Parent=self.Content,Size=UDim2.new(1,0,0,25),BackgroundTransparency=1,Font=Constants.Fonts.Default,TextColor3=Constants.Colors.TextSecondary,Text=t,TextSize=12,TextXAlignment=Enum.TextXAlignment.Left,TextYAlignment=Enum.TextYAlignment.Bottom})end
+function Tab:AddItemButton(t,c)local C=Constants;local b=_create("TextButton",{Parent=self.Content,Name=t,Size=UDim2.new(1,0,0,35),BackgroundColor3=C.Colors.Secondary,Text=""})_create("UICorner",{CornerRadius=UDim.new(0,6),Parent=b})local i=_create("ImageLabel",{Parent=b,Name="Icon",Size=UDim2.new(0,18,0,18),Position=UDim2.new(0,10,0.5,-9),BackgroundTransparency=1,Image=C.Assets.Unlocked,ImageColor3=C.Colors.TextPrimary})_create("TextLabel",{Parent=b,Name="TextLabel",Size=UDim2.new(1,-45,1,0),Position=UDim2.new(0,35,0,0),BackgroundTransparency=1,Text=t,TextColor3=C.Colors.TextPrimary,Font=C.Fonts.Default,TextSize=14,TextXAlignment=Enum.TextXAlignment.Left})self.ParentWindow.Connections[#self.ParentWindow.Connections+1]=b.MouseButton1Click:Connect(function()c(i,b.TextLabel)end)return b,i end
+function Tab:AddActionRow(text,isEnabled,callback)local C=Constants;local actionBar=_create("Frame",{Parent=self.Content,Size=UDim2.new(1,0,0,35),BackgroundTransparency=1})local button=_create("TextButton",{Parent=actionBar,Name="ActionButton",Size=UDim2.new(1,-65,1,0),Position=UDim2.fromScale(0,0),BackgroundColor3=isEnabled and C.Colors.Success or C.Colors.Danger,Text=isEnabled and "Parar Compra"or text,TextColor3=C.Colors.TextPrimary,TextSize=14,Font=C.Fonts.Button})_create("UICorner",{CornerRadius=UDim.new(0,6),Parent=button})local toggleContainer,toggleUpdateFunc=ZenithLib._createToggleSwitch(self.ParentWindow.Connections,actionBar,nil,isEnabled,function(newVal)isEnabled=newVal;button.BackgroundColor3=isEnabled and C.Colors.Success or C.Colors.Danger;button.Text=isEnabled and"Parar Compra"or text;callback(isEnabled)end)toggleContainer.Size=UDim2.new(0,50,1,0);toggleContainer.Position=UDim2.new(1,-50,0,0);self.ParentWindow.Connections[#self.ParentWindow.Connections+1]=button.MouseButton1Click:Connect(function()isEnabled=not isEnabled;toggleUpdateFunc(isEnabled);button.BackgroundColor3=isEnabled and C.Colors.Success or C.Colors.Danger;button.Text=isEnabled and"Parar Compra"or text;callback(isEnabled)end)_create("Frame",{Parent=self.Content,Size=UDim2.new(1,0,0,5),BackgroundTransparency=1})return button end
 
-function Tab:AddActionRow(text,isEnabled,callback)
-    local C=Constants
-    local actionBar=_create("Frame",{Parent=self.Content,Size=UDim2.new(1,0,0,35),BackgroundTransparency=1})
-    local button=_create("TextButton",{Parent=actionBar,Name="ActionButton",Size=UDim2.new(1,-65,1,0),Position=UDim2.fromScale(0,0),BackgroundColor3=isEnabled and C.Colors.Success or C.Colors.Danger,Text=isEnabled and "Parar Compra" or text,TextColor3=C.Colors.TextPrimary,TextSize=14,Font=C.Fonts.Button})
-    _create("UICorner",{CornerRadius=UDim.new(0,6),Parent=button})
-    
-    -- CORREÇÃO FINAL E DEFINITIVA APLICADA AQUI
-    local toggleContainer,toggleUpdateFunc=ZenithLib._createToggleSwitch(actionBar,nil,isEnabled,function(newVal)
-        isEnabled=newVal
-        button.BackgroundColor3=isEnabled and C.Colors.Success or C.Colors.Danger
-        button.Text=isEnabled and "Parar Compra" or text
-        callback(isEnabled)
-    end)
-    
-    toggleContainer.Size=UDim2.new(0,50,1,0)
-    toggleContainer.Position=UDim2.new(1,-50,0,0)
-    
-    connections[#connections+1]=button.MouseButton1Click:Connect(function()
-        isEnabled=not isEnabled
-        toggleUpdateFunc(isEnabled)
-        callback(isEnabled)
-    end)
-    return button
-end
-
-ZenithLib._createToggleSwitch=function(parent,labelText,isEnabled,callback)local C=Constants;local container=_create("Frame",{Parent=parent,Size=UDim2.new(1,0,0,35),BackgroundTransparency=1})if labelText then _create("TextLabel",{Parent=container,Size=UDim2.new(0.7,0,1,0),BackgroundTransparency=1,Text=labelText,Font=C.Fonts.Default,TextColor3=C.Colors.TextPrimary,TextSize=14,TextXAlignment=Enum.TextXAlignment.Left})end;local switchBg=_create("Frame",{Parent=container,Size=UDim2.fromOffset(50,20),Position=labelText and UDim2.new(0.8,0,0.5,-10)or UDim2.new(0.5,-25,0.5,-10),BackgroundColor3=isEnabled and C.Colors.Success or C.Colors.Disabled})_create("UICorner",{CornerRadius=UDim.new(1,0),Parent=switchBg})local switchKnob=_create("Frame",{Parent=switchBg,Size=UDim2.fromOffset(16,16),Position=isEnabled and UDim2.new(1,-18,0.5,-8)or UDim2.new(0,2,0.5,-8),BackgroundColor3=C.Colors.TextPrimary,BorderSizePixel=0})_create("UICorner",{CornerRadius=UDim.new(1,0),Parent=switchKnob})local clickDetector=_create("TextButton",{Parent=switchBg,Size=UDim2.fromScale(1,1),BackgroundTransparency=1,Text=""})
+ZenithLib._createToggleSwitch=function(conns,parent,labelText,isEnabled,callback)local C=Constants;local container=_create("Frame",{Parent=parent,Size=UDim2.new(1,0,0,35),BackgroundTransparency=1})if labelText then _create("TextLabel",{Parent=container,Size=UDim2.new(0.7,0,1,0),BackgroundTransparency=1,Text=labelText,Font=C.Fonts.Default,TextColor3=C.Colors.TextPrimary,TextSize=14,TextXAlignment=Enum.TextXAlignment.Left})end;local switchBg=_create("Frame",{Parent=container,Size=UDim2.fromOffset(50,20),Position=labelText and UDim2.new(0.8,0,0.5,-10)or UDim2.new(0.5,-25,0.5,-10),BackgroundColor3=isEnabled and C.Colors.Success or C.Colors.Disabled})_create("UICorner",{CornerRadius=UDim.new(1,0),Parent=switchBg})local switchKnob=_create("Frame",{Parent=switchBg,Size=UDim2.fromOffset(16,16),Position=isEnabled and UDim2.new(1,-18,0.5,-8)or UDim2.new(0,2,0.5,-8),BackgroundColor3=C.Colors.TextPrimary,BorderSizePixel=0})_create("UICorner",{CornerRadius=UDim.new(1,0),Parent=switchKnob})local clickButton=_create("TextButton",{Parent=switchBg,Size=UDim2.fromScale(1,1),BackgroundTransparency=1,Text=""})
     local function updateVisuals(enabled)isEnabled=enabled;local p=enabled and UDim2.new(1,-18,0.5,-8)or UDim2.new(0,2,0.5,-8);local c=enabled and C.Colors.Success or C.Colors.Disabled;TweenService:Create(switchKnob,C.Animation.FadeInfo,{Position=p}):Play()TweenService:Create(switchBg,C.Animation.FadeInfo,{BackgroundColor3=c}):Play()end
-    connections[#connections+1]=clickDetector.MouseButton1Click:Connect(function()isEnabled=not isEnabled;callback(isEnabled);updateVisuals(isEnabled)end)
+    conns[#conns+1]=clickButton.MouseButton1Click:Connect(function()isEnabled=not isEnabled;callback(isEnabled);updateVisuals(isEnabled)end)
     return container,updateVisuals
 end
-ZenithLib._createSlider=function(parent,label,min,max,initial,callback)local C=Constants;local container=_create("Frame",{Parent=parent,Size=UDim2.new(1,0,0,50),BackgroundTransparency=1})local valueLabel=_create("TextLabel",{Parent=container,Size=UDim2.new(1,0,0,20),BackgroundTransparency=1,Font=C.Fonts.Default,TextColor3=C.Colors.TextPrimary,TextSize=14,Text=string.format("%s: %.2fs",label,initial)})local track=_create("Frame",{Parent=container,Size=UDim2.new(1,0,0,6),Position=UDim2.new(0,0,0,25),BackgroundColor3=C.Colors.Primary})_create("UICorner",{CornerRadius=UDim.new(1,0),Parent=track})local fill=_create("Frame",{Parent=track,Size=UDim2.new((initial-min)/(max-min),0,1,0),BackgroundColor3=C.Colors.Accent})_create("UICorner",{CornerRadius=UDim.new(1,0),Parent=fill})local thumb=_create("ImageButton",{Parent=track,Size=UDim2.fromOffset(16,16),Position=UDim2.new(fill.Size.X.Scale,-8,0.5,-8),BackgroundColor3=C.Colors.TextPrimary,ZIndex=2})_create("UICorner",{CornerRadius=UDim.new(1,0),Parent=thumb})local isDragging=false;connections[#connections+1]=thumb.InputBegan:Connect(function(input)if input.UserInputType==Enum.UserInputType.MouseButton1 or input.UserInputType==Enum.UserInputType.Touch then isDragging=true end end)connections[#connections+1]=thumb.InputEnded:Connect(function(input)if input.UserInputType==Enum.UserInputType.MouseButton1 or input.UserInputType==Enum.UserInputType.Touch then isDragging=false end end)connections[#connections+1]=UserInputService.InputChanged:Connect(function(input)if isDragging and(input.UserInputType==Enum.UserInputType.MouseMovement or input.UserInputType==Enum.UserInputType.Touch)then local percent=math.clamp((input.Position.X-track.AbsolutePosition.X)/track.AbsoluteSize.X,0,1)local value=min+(max-min)*percent;fill.Size,thumb.Position=UDim2.new(percent,0,1,0),UDim2.new(percent,-8,0.5,-8)valueLabel.Text=string.format("%s: %.2fs",label,value)callback(value)end end)return container end
+ZenithLib._createSlider=function(conns,parent,label,min,max,initial,callback)local C=Constants;local container=_create("Frame",{Parent=parent,Size=UDim2.new(1,0,0,50),BackgroundTransparency=1})local valueLabel=_create("TextLabel",{Parent=container,Size=UDim2.new(1,0,0,20),BackgroundTransparency=1,Font=C.Fonts.Default,TextColor3=C.Colors.TextPrimary,TextSize=14,Text=string.format("%s: %.2fs",label,initial)})local track=_create("Frame",{Parent=container,Size=UDim2.new(1,0,0,6),Position=UDim2.new(0,0,0,25),BackgroundColor3=C.Colors.Primary})_create("UICorner",{CornerRadius=UDim.new(1,0),Parent=track})local fill=_create("Frame",{Parent=track,Size=UDim2.new((initial-min)/(max-min),0,1,0),BackgroundColor3=C.Colors.Accent})_create("UICorner",{CornerRadius=UDim.new(1,0),Parent=fill})local thumb=_create("ImageButton",{Parent=track,Size=UDim2.fromOffset(16,16),Position=UDim2.new(fill.Size.X.Scale,-8,0.5,-8),BackgroundColor3=C.Colors.TextPrimary,ZIndex=2})_create("UICorner",{CornerRadius=UDim.new(1,0),Parent=thumb})local isDragging=false;conns[#conns+1]=thumb.InputBegan:Connect(function(input)if input.UserInputType==Enum.UserInputType.MouseButton1 or input.UserInputType==Enum.UserInputType.Touch then isDragging=true end end)conns[#conns+1]=thumb.InputEnded:Connect(function(input)if input.UserInputType==Enum.UserInputType.MouseButton1 or input.UserInputType==Enum.UserInputType.Touch then isDragging=false end end)conns[#conns+1]=UserInputService.InputChanged:Connect(function(input)if isDragging and(input.UserInputType==Enum.UserInputType.MouseMovement or input.UserInputType==Enum.UserInputType.Touch)then local percent=math.clamp((input.Position.X-track.AbsolutePosition.X)/track.AbsoluteSize.X,0,1)local value=min+(max-min)*percent;fill.Size,thumb.Position=UDim2.new(percent,0,1,0),UDim2.new(percent,-8,0.5,-8)valueLabel.Text=string.format("%s: %.2fs",label,value)callback(value)end end)return container end
 
 return ZenithLib
