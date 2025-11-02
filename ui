@@ -1,6 +1,7 @@
 --[[
-    ZenithLib v1.0
+    ZenithLib v1.1
     Uma biblioteca de UI simples e moderna para Roblox.
+    - Correção: Envolve o conteúdo da aba em um CanvasGroup para permitir a animação de fade.
 ]]
 
 local ZenithLib = {}
@@ -9,7 +10,6 @@ local ZenithLib = {}
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local CoreGui = game:GetService("CoreGui")
-local RunService = game:GetService("RunService")
 
 local Constants = {
     Colors = {
@@ -44,7 +44,6 @@ Tab.__index = Tab
 
 -- Construtor da Janela (Função principal da Lib)
 function ZenithLib:CreateWindow(title, size)
-    -- Limpa conexões antigas se uma janela já existir
     for _, c in pairs(connections) do c:Disconnect() end; connections = {}
     if CoreGui:FindFirstChild("ZenithLib_Window") then CoreGui.ZenithLib_Window:Destroy() end
 
@@ -78,16 +77,22 @@ function Window:AddTab(name)
     tab.ParentWindow = self
     tab.Name = name
     
-    -- Cria o contêiner de conteúdo rolável para a aba
-    tab.Content = _create("ScrollingFrame", {
+    -- CORREÇÃO: Envolve o ScrollingFrame em um CanvasGroup para animação
+    tab.Container = _create("CanvasGroup", {
         Parent = self.ContentFrame,
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        Visible = #self.Tabs == 0,
+        GroupTransparency = #self.Tabs == 0 and 0 or 1
+    })
+
+    tab.Content = _create("ScrollingFrame", {
+        Parent = tab.Container,
         Size = UDim2.fromScale(1, 1),
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
         ScrollBarThickness = 6,
-        ScrollBarImageColor3 = Constants.Colors.Accent,
-        Visible = #self.Tabs == 0,
-        GroupTransparency = #self.Tabs == 0 and 0 or 1
+        ScrollBarImageColor3 = Constants.Colors.Accent
     })
     _create("UIListLayout", { Parent = tab.Content, Padding = UDim.new(0, 10), SortOrder = Enum.SortOrder.LayoutOrder })
     _create("UIPadding", { Parent = tab.Content, PaddingTop = UDim.new(0, 10) })
@@ -98,10 +103,7 @@ function Window:AddTab(name)
     table.insert(self.Tabs, tab)
     self.TabButtons[name] = {Button = tabBtn, Container = container}
 
-    -- Recalcula o tamanho de todos os containers de botão
-    for _, btnData in pairs(self.TabButtons) do
-        btnData.Container.Size = UDim2.new(1 / #self.Tabs, 0, 1, 0)
-    end
+    for _, btnData in pairs(self.TabButtons) do btnData.Container.Size = UDim2.new(1 / #self.Tabs, 0, 1, 0) end
 
     connections[#connections+1] = tabBtn.MouseButton1Click:Connect(function()
         for _, otherTabData in pairs(self.TabButtons) do TweenService:Create(otherTabData.Button, Constants.Animation.FadeInfo, {TextColor3 = Constants.Colors.TextSecondary}):Play() end
@@ -112,18 +114,18 @@ function Window:AddTab(name)
         TweenService:Create(self.SelectionUnderline,Constants.Animation.SlideInfo,{Size=goalSize,Position=goalPos}):Play()
         
         for _, otherTab in ipairs(self.Tabs) do
-            if otherTab.Content.Visible then
-                local currentTabContent = otherTab.Content
-                local tween = TweenService:Create(currentTabContent, Constants.Animation.FadeInfo, {GroupTransparency=1})
-                tween.Completed:Connect(function() if tween.PlaybackState == Enum.PlaybackState.Completed then currentTabContent.Visible = false end end)
+            if otherTab.Container.Visible then
+                local currentTabContainer = otherTab.Container
+                local tween = TweenService:Create(currentTabContainer, Constants.Animation.FadeInfo, {GroupTransparency=1})
+                tween.Completed:Connect(function() if tween.PlaybackState == Enum.PlaybackState.Completed then currentTabContainer.Visible = false end end)
                 tween:Play()
             end
         end
         
         task.spawn(function()
             task.wait(Constants.Animation.FadeInfo.Time)
-            tab.Content.Visible, tab.Content.GroupTransparency = true, 1
-            TweenService:Create(tab.Content, Constants.Animation.FadeInfo, {GroupTransparency=0}):Play()
+            tab.Container.Visible, tab.Container.GroupTransparency = true, 1
+            TweenService:Create(tab.Container, Constants.Animation.FadeInfo, {GroupTransparency=0}):Play()
         end)
     end)
     
@@ -140,25 +142,10 @@ function Window:AddTab(name)
     return tab
 end
 
--- Funções para adicionar componentes a uma aba
-function Tab:AddButton(text, callback)
-    local button = _create("TextButton", {Parent = self.Content, Size=UDim2.new(1,0,0,35), BackgroundColor3=Constants.Colors.Secondary, Text=text, TextColor3=Constants.Colors.TextPrimary, Font=Constants.Fonts.Button, TextSize=14})
-    _create("UICorner", {CornerRadius=UDim.new(0,6), Parent=button})
-    connections[#connections+1] = button.MouseButton1Click:Connect(callback)
-    return button
-end
+function Tab:AddButton(text, callback) local button = _create("TextButton", {Parent = self.Content, Size=UDim2.new(1,0,0,35), BackgroundColor3=Constants.Colors.Secondary, Text=text, TextColor3=Constants.Colors.TextPrimary, Font=Constants.Fonts.Button, TextSize=14}) _create("UICorner", {CornerRadius=UDim.new(0,6), Parent=button}) connections[#connections+1] = button.MouseButton1Click:Connect(callback) return button end
+function Tab:AddToggle(label, isEnabled, callback) local container, updateVisuals = ZenithLib._createToggleSwitch(self.Content, label, isEnabled, callback) return container, updateVisuals end
+function Tab:AddSlider(label, min, max, initial, callback) local container = ZenithLib._createSlider(self.Content, label, min, max, initial, callback) return container end
 
-function Tab:AddToggle(label, isEnabled, callback)
-    local container, updateVisuals = ZenithLib._createToggleSwitch(self.Content, label, isEnabled, callback)
-    return container, updateVisuals
-end
-
-function Tab:AddSlider(label, min, max, initial, callback)
-    local container = ZenithLib._createSlider(self.Content, label, min, max, initial, callback)
-    return container
-end
-
--- Implementações dos componentes (internas da Lib)
 ZenithLib._createToggleSwitch = function(parent,labelText,isEnabled,callback) local C=Constants;local container=_create("Frame",{Parent=parent,Size=UDim2.new(1,0,0,35),BackgroundTransparency=1})if labelText then _create("TextLabel",{Parent=container,Size=UDim2.new(0.7,0,1,0),BackgroundTransparency=1,Text=labelText,Font=C.Fonts.Default,TextColor3=C.Colors.TextPrimary,TextSize=14,TextXAlignment=Enum.TextXAlignment.Left})end;local switchBg=_create("Frame",{Parent=container,Size=UDim2.fromOffset(50,20),Position=labelText and UDim2.new(0.8,0,0.5,-10)or UDim2.new(0.5,-25,0.5,-10),BackgroundColor3=isEnabled and C.Colors.Success or C.Colors.Disabled})_create("UICorner",{CornerRadius=UDim.new(1,0),Parent=switchBg})local switchKnob=_create("Frame",{Parent=switchBg,Size=UDim2.fromOffset(16,16),Position=isEnabled and UDim2.new(1,-18,0.5,-8)or UDim2.new(0,2,0.5,-8),BackgroundColor3=C.Colors.TextPrimary,BorderSizePixel=0})_create("UICorner",{CornerRadius=UDim.new(1,0),Parent=switchKnob})local clickDetector=_create("TextButton",{Parent=switchBg,Size=UDim2.fromScale(1,1),BackgroundTransparency=1,Text=""})local function updateVisuals(enabled)isEnabled=enabled;local p=enabled and UDim2.new(1,-18,0.5,-8)or UDim2.new(0,2,0.5,-8);local c=enabled and C.Colors.Success or C.Colors.Disabled;TweenService:Create(switchKnob,C.Animation.FadeInfo,{Position=p}):Play()TweenService:Create(switchBg,C.Animation.FadeInfo,{BackgroundColor3=c}):Play()end;connections[#connections+1]=clickDetector.MouseButton1Click:Connect(function()isEnabled=not isEnabled;callback(isEnabled);updateVisuals(isEnabled)end)return container,updateVisuals end
 ZenithLib._createSlider = function(parent,label,min,max,initial,callback) local C=Constants;local container=_create("Frame",{Parent=parent,Size=UDim2.new(1,0,0,50),BackgroundTransparency=1})local valueLabel=_create("TextLabel",{Parent=container,Size=UDim2.new(1,0,0,20),BackgroundTransparency=1,Font=C.Fonts.Default,TextColor3=C.Colors.TextPrimary,TextSize=14,Text=string.format("%s: %.2fs",label,initial)})local track=_create("Frame",{Parent=container,Size=UDim2.new(1,0,0,6),Position=UDim2.new(0,0,0,25),BackgroundColor3=C.Colors.Primary})_create("UICorner",{CornerRadius=UDim.new(1,0),Parent=track})local fill=_create("Frame",{Parent=track,Size=UDim2.new((initial-min)/(max-min),0,1,0),BackgroundColor3=C.Colors.Accent})_create("UICorner",{CornerRadius=UDim.new(1,0),Parent=fill})local thumb=_create("ImageButton",{Parent=track,Size=UDim2.fromOffset(16,16),Position=UDim2.new(fill.Size.X.Scale,-8,0.5,-8),BackgroundColor3=C.Colors.TextPrimary,ZIndex=2})_create("UICorner",{CornerRadius=UDim.new(1,0),Parent=thumb})local isDragging=false;connections[#connections+1]=thumb.InputBegan:Connect(function(input)if input.UserInputType==Enum.UserInputType.MouseButton1 or input.UserInputType==Enum.UserInputType.Touch then isDragging=true end end)connections[#connections+1]=thumb.InputEnded:Connect(function(input)if input.UserInputType==Enum.UserInputType.MouseButton1 or input.UserInputType==Enum.UserInputType.Touch then isDragging=false end end)connections[#connections+1]=UserInputService.InputChanged:Connect(function(input)if isDragging and(input.UserInputType==Enum.UserInputType.MouseMovement or input.UserInputType==Enum.UserInputType.Touch)then local percent=math.clamp((input.Position.X-track.AbsolutePosition.X)/track.AbsoluteSize.X,0,1)local value=min+(max-min)*percent;fill.Size,thumb.Position=UDim2.new(percent,0,1,0),UDim2.new(percent,-8,0.5,-8)valueLabel.Text=string.format("%s: %.2fs",label,value)callback(value)end end)return container end
 
