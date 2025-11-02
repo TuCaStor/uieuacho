@@ -1,0 +1,133 @@
+--[[
+    Script Auto Buyer
+    Instruções: Cole isso no seu executor.
+    Pré-requisito: A UI Library deve estar hospedada em uma URL válida.
+]]
+
+-- Limpa instâncias anteriores do script principal
+if getgenv().AutoBuyerInstance and getgenv().AutoBuyerInstance.Cleanup then
+    getgenv().AutoBuyerInstance:Cleanup()
+end
+
+-- Carrega a biblioteca de UI a partir da URL
+local Library = loadstring(game:HttpGet("URL_DA_SUA_LIB_AQUI"))()
+if not Library then
+    warn("Falha ao carregar a UI Library. Verifique a URL.")
+    return
+end
+
+-- Configurações e estado do nosso script
+local Settings = {
+    seedEnabled = false,
+    gearEnabled = false,
+    miscEnabled = false,
+    antiAfkEnabled = true,
+    seedBlacklist = {},
+    gearBlacklist = {},
+    delay = 0.5
+}
+
+-- Funções de Lógica (o "cérebro" do script)
+local Logic = {}
+local activeLoops = {}
+
+function Logic:_fireRemote(remoteName, ...)
+    local remote = game:GetService("ReplicatedStorage").Remotes and game:GetService("ReplicatedStorage").Remotes:FindFirstChild(remoteName)
+    if not remote then return end
+    pcall(remote.FireServer, remote, ...)
+end
+
+function Logic:StartBuyingLoop(config)
+    if activeLoops[config.Name] then task.cancel(activeLoops[config.Name]) end
+    activeLoops[config.Name] = task.spawn(function()
+        while Settings[config.Flag] do
+            for _, item in ipairs(config.Items) do
+                if not Settings[config.Flag] then break end
+                if not table.find(config.Blacklist, item) then
+                    Logic:_fireRemote(config.Remote, item, true)
+                    task.wait(Settings.delay)
+                end
+            end
+            task.wait(0.1)
+        end
+    end)
+end
+
+function Logic:StartMiscLoop()
+    if activeLoops.Misc then task.cancel(activeLoops.Misc) end
+    activeLoops.Misc = task.spawn(function()
+        while Settings.miscEnabled do
+            Logic:_fireRemote("EquipBestBrainrots")
+            task.wait(30)
+        end
+    end)
+end
+
+-- Construção da Interface usando a Biblioteca
+local Window = Library:CreateWindow("Menu de Compra Automática", UDim2.new(0, 360, 0, 430))
+
+-- Aba de Sementes
+local SeedsTab = Window:CreateTab("Sementes")
+do
+    local function onToggle(button, updateToggle)
+        Settings.seedEnabled = not Settings.seedEnabled
+        button.Text = Settings.seedEnabled and "Parar Compra" or "Iniciar Compra"
+        button.BackgroundColor3 = Settings.seedEnabled and Library.Constants.Colors.Success or Library.Constants.Colors.Danger
+        updateToggle(Settings.seedEnabled)
+        if Settings.seedEnabled then
+            Logic:StartBuyingLoop({Name="Seeds", Flag="seedEnabled", Items=AutoBuyer.ItemData.Sementes, Blacklist=Settings.seedBlacklist, Remote="BuyItem"})
+        end
+    end
+    SeedsTab:CreateActionButton({ Text = "Iniciar Compra", IsOn = Settings.seedEnabled, Callback = onToggle })
+    
+    -- Adicionar botões para cada semente...
+end
+
+-- Aba de Equipamentos
+local GearTab = Window:CreateTab("Equipamentos")
+do
+    local function onToggle(button, updateToggle)
+        Settings.gearEnabled = not Settings.gearEnabled
+        button.Text = Settings.gearEnabled and "Parar Compra" or "Iniciar Compra"
+        button.BackgroundColor3 = Settings.gearEnabled and Library.Constants.Colors.Success or Library.Constants.Colors.Danger
+        updateToggle(Settings.gearEnabled)
+        if Settings.gearEnabled then
+            Logic:StartBuyingLoop({Name="Gear", Flag="gearEnabled", Items=AutoBuyer.ItemData.Equipamentos, Blacklist=Settings.gearBlacklist, Remote="BuyGear"})
+        end
+    end
+    GearTab:CreateActionButton({ Text = "Iniciar Compra", IsOn = Settings.gearEnabled, Callback = onToggle })
+    
+    -- Adicionar botões para cada equipamento...
+end
+
+-- Aba Diversos
+local MiscTab = Window:CreateTab("Diversos")
+do
+    MiscTab:CreateToggle("Auto-Equipar", Settings.miscEnabled, function(isEnabled)
+        Settings.miscEnabled = isEnabled
+        if isEnabled then Logic:StartMiscLoop() end
+    end)
+    MiscTab:CreateToggle("Anti-AFK", Settings.antiAfkEnabled, function(isEnabled)
+        Settings.antiAfkEnabled = isEnabled
+    end)
+end
+
+-- Aba de Configurações
+local ConfigTab = Window:CreateTab("Config.")
+do
+    ConfigTab:CreateSlider("Delay de Compra", 0.1, 2.0, Settings.delay, function(value)
+        Settings.delay = value
+    end)
+end
+
+
+-- Gerenciamento da instância para limpeza
+local instance = {
+    Cleanup = function()
+        Window.ScreenGui:Destroy()
+        Library:Cleanup()
+        for _, thread in pairs(activeLoops) do task.cancel(thread) end
+        getgenv().AutoBuyerInstance = nil
+    end
+}
+getgenv().AutoBuyerInstance = instance
